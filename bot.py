@@ -15,7 +15,11 @@ NITTER_INSTANCES = [
     "https://nitter.net",
     "https://nitter.unixfox.eu",
     "https://nitter.poast.org",
-    "https://nitter.privacydev.net"
+    "https://nitter.privacydev.net",
+    "https://nitter.moomoo.me",
+    "https://nitter.1d4.us",
+    "https://nitter.fdn.fr",
+    "https://nitter.kavin.rocks"
 ]
 
 intents = discord.Intents.default()
