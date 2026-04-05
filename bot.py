@@ -44,13 +44,39 @@ def save_last(data):
         json.dump(data,f)
 
 
-async def get_feed(url):
+async def get_feed(user):
 
+    for instance in NITTER_INSTANCES:
+
+        url = f"{instance}/{user}/rss"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as resp:
+                    text = await resp.text()
+                    feed = feedparser.parse(text)
+
+                    if feed.entries:
+                        return feed
+
+        except:
+            pass
+
+    # フォールバック（Nitter全滅時）
     try:
+
+        url = f"https://twiiit.com/{user}"
+
         async with aiohttp.ClientSession() as session:
-            async with session.get(url,timeout=10) as resp:
+            async with session.get(url, timeout=10) as resp:
+
                 text = await resp.text()
-                return feedparser.parse(text)
+
+                # 簡易RSS化
+                feed = feedparser.parse(text)
+
+                return feed
+
     except:
         return None
 
