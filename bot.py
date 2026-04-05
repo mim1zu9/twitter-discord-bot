@@ -4,8 +4,10 @@ import feedparser
 import json
 import re
 
-TOKEN = "MTQ5MDI1ODEwMzE4OTUwODI4NA.G-fIIx.bC9JdNqhPvA7Bg6t1GpAUZoFtdG67RwXBGRTgE"
-CHANNEL_ID = 1490066821108203560
+import os
+
+TOKEN = os.getenv("TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
 CHECK_INTERVAL = 120
 
