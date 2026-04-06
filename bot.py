@@ -9,7 +9,7 @@ import aiohttp
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
-CHECK_INTERVAL = 180
+CHECK_INTERVAL = 300
 
 NITTER_INSTANCES = [
 "https://nitter.privacydev.net",
