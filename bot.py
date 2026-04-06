@@ -7,19 +7,34 @@ import random
 import aiohttp
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
 CHECK_INTERVAL = 180
 
 NITTER_INSTANCES = [
-    "https://nitter.privacydev.net",
-    "https://nitter.poast.org",
-    "https://nitter.perennialte.ch",
-    "https://nitter.moomoo.me",
-    "https://nitter.woodland.cafe",
-    "https://nitter.kavin.rocks",
-    "https://nitter.1d4.us"
+"https://nitter.privacydev.net",
+"https://nitter.poast.org",
+"https://nitter.perennialte.ch",
+"https://nitter.moomoo.me",
+"https://nitter.woodland.cafe",
+"https://nitter.kavin.rocks",
+"https://nitter.1d4.us",
+"https://nitter.fdn.fr",
+"https://nitter.unixfox.eu",
+"https://nitter.projectsegfau.lt",
+"https://nitter.privacy.com.de",
+"https://nitter.oksocial.net"
 ]
+
+RSSHUB_INSTANCES = [
+"https://rsshub.app",
+"https://rsshub.rssforever.com",
+"https://rsshub.feeded.xyz"
+]
+
+HEADERS = {
+"User-Agent":"Mozilla/5.0"
+}
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -30,7 +45,7 @@ LAST_FILE = "last_tweets.json"
 
 def load_accounts():
     try:
-        with open("accounts.txt", "r", encoding="utf-8") as f:
+        with open("accounts.txt","r",encoding="utf-8") as f:
             return [x.strip() for x in f if x.strip()]
     except:
         print("accounts.txt が見つかりません")
@@ -43,48 +58,62 @@ def load_last():
         return {}
 
     try:
-        with open(LAST_FILE, "r") as f:
+        with open(LAST_FILE,"r") as f:
             return json.load(f)
     except:
-        print("last_tweets.json 破損 → リセット")
+        print("JSON破損 → リセット")
         return {}
 
 
 def save_last(data):
+    with open(LAST_FILE,"w") as f:
+        json.dump(data,f)
+
+
+async def fetch(url):
+
     try:
-        with open(LAST_FILE, "w") as f:
-            json.dump(data, f)
+        async with session.get(url,headers=HEADERS,timeout=10) as resp:
+
+            if resp.status != 200:
+                return None
+
+            text = await resp.text()
+
+            feed = feedparser.parse(text)
+
+            if feed.bozo:
+                return None
+
+            return feed
+
     except:
-        print("last_tweets 保存失敗")
+        return None
 
 
 async def get_feed(user):
 
-    instances = random.sample(NITTER_INSTANCES, len(NITTER_INSTANCES))
+    random.shuffle(NITTER_INSTANCES)
 
-    for instance in instances:
+    for inst in NITTER_INSTANCES:
 
-        url = f"{instance}/{user}/rss"
+        url = f"{inst}/{user}/rss"
 
-        try:
+        feed = await fetch(url)
 
-            async with session.get(url, timeout=6) as resp:
+        if feed and feed.entries:
+            return feed
 
-                if resp.status != 200:
-                    continue
+    random.shuffle(RSSHUB_INSTANCES)
 
-                text = await resp.text()
+    for inst in RSSHUB_INSTANCES:
 
-                feed = feedparser.parse(text)
+        url = f"{inst}/twitter/user/{user}"
 
-                if feed.bozo:
-                    continue
+        feed = await fetch(url)
 
-                if feed.entries:
-                    return feed
-
-        except:
-            continue
+        if feed and feed.entries:
+            return feed
 
     return None
 
@@ -97,12 +126,12 @@ def clean_text(text):
     return text.strip()
 
 
-async def process_account(user, channel, last):
+async def process_account(user,channel,last):
 
     feed = await get_feed(user)
 
     if not feed:
-        print(f"{user} 取得失敗")
+        print("取得失敗:",user)
         return
 
     if user not in last:
@@ -129,7 +158,7 @@ async def process_account(user, channel, last):
             color=0x1DA1F2
         )
 
-        if hasattr(tweet, "media_content"):
+        if hasattr(tweet,"media_content"):
             try:
                 embed.set_image(url=tweet.media_content[0]["url"])
             except:
@@ -137,16 +166,16 @@ async def process_account(user, channel, last):
 
         try:
             await channel.send(embed=embed)
-            print(f"送信: {user}")
+            print("送信:",user)
         except Exception as e:
-            print("送信失敗", e)
+            print("送信失敗:",e)
 
         last[user].append(tweet_id)
 
-        if len(last[user]) > 100:
+        if len(last[user]) > 120:
             last[user].pop(0)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(random.uniform(3,6))
 
 
 async def check_loop():
@@ -173,14 +202,19 @@ async def check_loop():
         for user in accounts:
 
             try:
-                print(f"Checking {user}")
-                await process_account(user, channel, last)
+
+                print("Checking:",user)
+
+                await process_account(user,channel,last)
+
                 save_last(last)
 
             except Exception as e:
-                print("アカウント処理エラー", e)
 
-        print(f"待機 {CHECK_INTERVAL}秒")
+                print("処理エラー:",e)
+
+        print("待機:",CHECK_INTERVAL)
+
         await asyncio.sleep(CHECK_INTERVAL)
 
 
@@ -189,11 +223,20 @@ async def on_ready():
 
     global session
 
-    print(f"Bot起動: {client.user}")
+    print("Bot起動:",client.user)
 
     session = aiohttp.ClientSession()
 
     asyncio.create_task(check_loop())
+
+
+@client.event
+async def on_disconnect():
+
+    global session
+
+    if session:
+        await session.close()
 
 
 client.run(TOKEN)
