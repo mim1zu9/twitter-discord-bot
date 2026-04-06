@@ -8,7 +8,7 @@ import aiohttp
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-CHECK_INTERVAL = 90 # あまり短いとアクセス禁止（429）になりやすいです
+CHECK_INTERVAL = 300 # あまり短いとアクセス禁止（429）になりやすいです
 
 # 生きているインスタンスを探すのが難しいですが、いくつか候補
 NITTER_INSTANCES = [
