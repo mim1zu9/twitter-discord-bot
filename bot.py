@@ -73,25 +73,31 @@ async def check_loop():
             accounts = load_accounts()
             last = load_last()
 
-            for user in accounts:
-            print(f"Checking: {user}...") # 進行状況の表示
+            while True:
+        accounts = load_accounts()
+
+        for user in accounts:
+            # --- ここから診断用コード (行頭にスペースを入れてください) ---
+            print(f"Checking: {user}...") 
             
-    
-            feed = await get_feed(user) # 修正: url ではなく user を渡す
+            feed = await get_feed(user) # ここが url になっていたら user に書き換え
 
             if not feed:
-                print(f"  [!] {user}: サイトにアクセスできませんでした（Nitter全滅の可能性）")
+                print(f"  [!] {user}: サイトにアクセスできませんでした")
                 continue
 
             if not feed.entries:
-                print(f"  [!] {user}: サイトには繋がりましたが、ツイートが0件です（制限中）")
+                print(f"  [!] {user}: ツイートが0件でした（制限の可能性）")
                 continue
             
-            print(f"  [OK] {user}: {len(feed.entries)}件のツイートを確認しました")
+            print(f"  [OK] {user}: {len(feed.entries)}件のツイートを確認")
             # --- ここまで診断用コード ---
 
+            # 以降の処理も、この for 文の中に含まれるようにインデントを揃える
             if user not in last:
                 last[user] = []
+            
+            # ... (以下、元のコードが続く)
 
                 for tweet in reversed(feed.entries[:5]): # 古い順に投稿
                     tweet_id = tweet.link
