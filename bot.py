@@ -5,11 +5,13 @@ import json
 import os
 import random
 import aiohttp
+from datetime import datetime, timezone
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
-CHECK_INTERVAL = 300
+CHECK_INTERVAL = 180
+MAX_TWEET_AGE = 86400
 
 NITTER_INSTANCES = [
 "https://nitter.privacydev.net",
@@ -32,9 +34,7 @@ RSSHUB_INSTANCES = [
 "https://rsshub.feeded.xyz"
 ]
 
-HEADERS = {
-"User-Agent":"Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -45,7 +45,7 @@ LAST_FILE = "last_tweets.json"
 
 def load_accounts():
     try:
-        with open("accounts.txt","r",encoding="utf-8") as f:
+        with open("accounts.txt", "r", encoding="utf-8") as f:
             return [x.strip() for x in f if x.strip()]
     except:
         print("accounts.txt が見つかりません")
@@ -53,12 +53,10 @@ def load_accounts():
 
 
 def load_last():
-
     if not os.path.exists(LAST_FILE):
         return {}
-
     try:
-        with open(LAST_FILE,"r") as f:
+        with open(LAST_FILE, "r") as f:
             return json.load(f)
     except:
         print("JSON破損 → リセット")
@@ -66,27 +64,20 @@ def load_last():
 
 
 def save_last(data):
-    with open(LAST_FILE,"w") as f:
-        json.dump(data,f)
+    with open(LAST_FILE, "w") as f:
+        json.dump(data, f)
 
 
 async def fetch(url):
-
     try:
-        async with session.get(url,headers=HEADERS,timeout=10) as resp:
-
+        async with session.get(url, headers=HEADERS, timeout=10) as resp:
             if resp.status != 200:
                 return None
-
             text = await resp.text()
-
             feed = feedparser.parse(text)
-
             if feed.bozo:
                 return None
-
             return feed
-
     except:
         return None
 
@@ -96,22 +87,16 @@ async def get_feed(user):
     random.shuffle(NITTER_INSTANCES)
 
     for inst in NITTER_INSTANCES:
-
         url = f"{inst}/{user}/rss"
-
         feed = await fetch(url)
-
         if feed and feed.entries:
             return feed
 
     random.shuffle(RSSHUB_INSTANCES)
 
     for inst in RSSHUB_INSTANCES:
-
         url = f"{inst}/twitter/user/{user}"
-
         feed = await fetch(url)
-
         if feed and feed.entries:
             return feed
 
@@ -119,19 +104,26 @@ async def get_feed(user):
 
 
 def clean_text(text):
-
     if "http" in text:
         text = text.split("http")[0]
-
     return text.strip()
 
 
-async def process_account(user,channel,last):
+def is_recent(tweet):
+    try:
+        tweet_time = datetime(*tweet.published_parsed[:6], tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return (now - tweet_time).total_seconds() <= MAX_TWEET_AGE
+    except:
+        return True
+
+
+async def process_account(user, channel, last):
 
     feed = await get_feed(user)
 
     if not feed:
-        print("取得失敗:",user)
+        print("取得失敗:", user)
         return
 
     if user not in last:
@@ -142,6 +134,9 @@ async def process_account(user,channel,last):
         tweet_id = tweet.link
 
         if tweet_id in last[user]:
+            continue
+
+        if not is_recent(tweet):
             continue
 
         title = tweet.title
@@ -158,7 +153,7 @@ async def process_account(user,channel,last):
             color=0x1DA1F2
         )
 
-        if hasattr(tweet,"media_content"):
+        if hasattr(tweet, "media_content"):
             try:
                 embed.set_image(url=tweet.media_content[0]["url"])
             except:
@@ -166,16 +161,16 @@ async def process_account(user,channel,last):
 
         try:
             await channel.send(embed=embed)
-            print("送信:",user)
+            print("送信:", user)
         except Exception as e:
-            print("送信失敗:",e)
+            print("送信失敗:", e)
 
         last[user].append(tweet_id)
 
         if len(last[user]) > 120:
             last[user].pop(0)
 
-        await asyncio.sleep(random.uniform(3,6))
+        await asyncio.sleep(random.uniform(3, 6))
 
 
 async def check_loop():
@@ -196,25 +191,15 @@ async def check_loop():
 
         accounts = load_accounts()
 
-        if not accounts:
-            print("監視アカウントなし")
-
         for user in accounts:
-
             try:
-
-                print("Checking:",user)
-
-                await process_account(user,channel,last)
-
+                print("Checking:", user)
+                await process_account(user, channel, last)
                 save_last(last)
-
             except Exception as e:
+                print("処理エラー:", e)
 
-                print("処理エラー:",e)
-
-        print("待機:",CHECK_INTERVAL)
-
+        print("待機:", CHECK_INTERVAL)
         await asyncio.sleep(CHECK_INTERVAL)
 
 
@@ -223,7 +208,7 @@ async def on_ready():
 
     global session
 
-    print("Bot起動:",client.user)
+    print("Bot起動:", client.user)
 
     session = aiohttp.ClientSession()
 
