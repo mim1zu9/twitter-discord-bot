@@ -8,158 +8,116 @@ import aiohttp
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+CHECK_INTERVAL = 60 # あまり短いとアクセス禁止（429）になりやすいです
 
-CHECK_INTERVAL = 30
-
+# 生きているインスタンスを探すのが難しいですが、いくつか候補
 NITTER_INSTANCES = [
-    "https://nitter.net",
-    "https://nitter.unixfox.eu",
-    "https://nitter.poast.org",
     "https://nitter.privacydev.net",
-    "https://nitter.moomoo.me",
-    "https://nitter.1d4.us",
-    "https://nitter.fdn.fr",
-    "https://nitter.kavin.rocks"
+    "https://nitter.poast.org",
+    "https://nitter.perennialte.ch"
 ]
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
-
 def load_accounts():
-    with open("accounts.txt","r",encoding="utf-8") as f:
-        return [x.strip() for x in f if x.strip()]
-
+    try:
+        with open("accounts.txt", "r", encoding="utf-8") as f:
+            return [x.strip() for x in f if x.strip()]
+    except FileNotFoundError:
+        return []
 
 def load_last():
     try:
-        with open("last_tweets.json","r") as f:
+        with open("last_tweets.json", "r") as f:
             return json.load(f)
     except:
         return {}
 
-
 def save_last(data):
-    with open("last_tweets.json","w") as f:
-        json.dump(data,f)
+    with open("last_tweets.json", "w") as f:
+        json.dump(data, f)
 
-
-async def get_feed(user):
-
-    for instance in NITTER_INSTANCES:
-
+async def get_feed(session, user):
+    # インスタンスをランダムに入れ替えて試行
+    shuffled_instances = random.sample(NITTER_INSTANCES, len(NITTER_INSTANCES))
+    
+    for instance in shuffled_instances:
         url = f"{instance}/{user}/rss"
-
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10) as resp:
+            async with session.get(url, timeout=10) as resp:
+                if resp.status == 200:
                     text = await resp.text()
                     feed = feedparser.parse(text)
-
                     if feed.entries:
                         return feed
-
         except:
-            pass
-
-    # フォールバック（Nitter全滅時）
-    try:
-
-        url = f"https://twiiit.com/{user}"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as resp:
-
-                text = await resp.text()
-
-                # 簡易RSS化
-                feed = feedparser.parse(text)
-
-                return feed
-
-    except:
-        return None
-
+            continue
+    return None
 
 def clean_text(text):
-
     if "http" in text:
         text = text.split("http")[0]
-
     return text.strip()
 
-
 async def check_loop():
-
     await client.wait_until_ready()
-
     channel = client.get_channel(CHANNEL_ID)
+    if not channel:
+        print("チャンネルが見つかりません。IDを確認してください。")
+        return
 
-    last = load_last()
+    # セッションを一つにまとめる
+    async with aiohttp.ClientSession() as session:
+        while not client.is_closed():
+            accounts = load_accounts()
+            last = load_last()
 
-    while True:
+            for user in accounts:
+                print(f"Checking: {user}")
+                feed = await get_feed(session, user) # 修正: sessionとuserを渡す
 
-        accounts = load_accounts()
-
-        for user in accounts:
-
-            instance = random.choice(NITTER_INSTANCES)
-
-            url = f"{instance}/{user}/rss"
-
-            feed = await get_feed(user)
-
-            if not feed or not feed.entries:
-                continue
-
-            if user not in last:
-                last[user] = []
-
-            for tweet in feed.entries[:5]:
-
-                tweet_id = tweet.link
-
-                if tweet_id in last[user]:
+                if not feed or not feed.entries:
                     continue
 
-                title = tweet.title
+                if user not in last:
+                    last[user] = []
 
-                if title.startswith("RT"):
-                    continue
+                for tweet in reversed(feed.entries[:5]): # 古い順に投稿
+                    tweet_id = tweet.link
+                    if tweet_id in last[user]:
+                        continue
 
-                if "Quote Tweet" in title:
-                    continue
+                    title = tweet.title
+                    if title.startswith("RT") or "Quote Tweet" in title:
+                        continue
 
-                text = clean_text(title)
+                    text = clean_text(title)
+                    embed = discord.Embed(
+                        title=f"{user} のツイート",
+                        description=text,
+                        url=tweet.link,
+                        color=0x1DA1F2
+                    )
 
-                embed = discord.Embed(
-                    title=f"{user} のツイート",
-                    description=text,
-                    url=tweet.link,
-                    color=0x1DA1F2
-                )
+                    # 画像取得の改善（Nitterのメディア構造に合わせる）
+                    if hasattr(tweet, 'media_content'):
+                        embed.set_image(url=tweet.media_content[0]['url'])
 
-                if "media" in tweet:
-                    embed.set_image(url=tweet.media[0]["url"])
+                    await channel.send(embed=embed)
+                    last[user].append(tweet_id)
 
-                await channel.send(embed=embed)
-
-                last[user].append(tweet_id)
-
-                if len(last[user]) > 50:
-                    last[user].pop(0)
+                    if len(last[user]) > 50:
+                        last[user].pop(0)
 
                 save_last(last)
+                await asyncio.sleep(5) # 連続アクセスによる制限回避
 
-        await asyncio.sleep(CHECK_INTERVAL)
-
+            await asyncio.sleep(CHECK_INTERVAL)
 
 @client.event
 async def on_ready():
-
-    print("Bot起動")
-
+    print(f"Bot起動: {client.user}")
     client.loop.create_task(check_loop())
-
 
 client.run(TOKEN)
