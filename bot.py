@@ -107,7 +107,7 @@ async def check_loop():
 
             url = f"{instance}/{user}/rss"
 
-            feed = await get_feed(url)
+            feed = await get_feed(user)
 
             if not feed or not feed.entries:
                 continue
