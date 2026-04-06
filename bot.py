@@ -8,7 +8,7 @@ import aiohttp
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-CHECK_INTERVAL = 60 # あまり短いとアクセス禁止（429）になりやすいです
+CHECK_INTERVAL = 90 # あまり短いとアクセス禁止（429）になりやすいです
 
 # 生きているインスタンスを探すのが難しいですが、いくつか候補
 NITTER_INSTANCES = [
@@ -74,14 +74,24 @@ async def check_loop():
             last = load_last()
 
             for user in accounts:
-                print(f"Checking: {user}")
-                feed = await get_feed(session, user) # 修正: sessionとuserを渡す
+            print(f"Checking: {user}...") # 進行状況の表示
+            
+    
+            feed = await get_feed(user) # 修正: url ではなく user を渡す
 
-                if not feed or not feed.entries:
-                    continue
+            if not feed:
+                print(f"  [!] {user}: サイトにアクセスできませんでした（Nitter全滅の可能性）")
+                continue
 
-                if user not in last:
-                    last[user] = []
+            if not feed.entries:
+                print(f"  [!] {user}: サイトには繋がりましたが、ツイートが0件です（制限中）")
+                continue
+            
+            print(f"  [OK] {user}: {len(feed.entries)}件のツイートを確認しました")
+            # --- ここまで診断用コード ---
+
+            if user not in last:
+                last[user] = []
 
                 for tweet in reversed(feed.entries[:5]): # 古い順に投稿
                     tweet_id = tweet.link
