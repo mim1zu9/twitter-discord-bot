@@ -6,15 +6,17 @@ import os
 import random
 import aiohttp
 
+# 環境変数
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-CHECK_INTERVAL = 300 # あまり短いとアクセス禁止（429）になりやすいです
+CHECK_INTERVAL = 60  # 1分おきにチェック（短すぎるとブロックされます）
 
-# 生きているインスタンスを探すのが難しいですが、いくつか候補
+# 現在比較的安定しているNitterインスタンス
 NITTER_INSTANCES = [
     "https://nitter.privacydev.net",
     "https://nitter.poast.org",
-    "https://nitter.perennialte.ch"
+    "https://nitter.perennialte.ch",
+    "https://nitter.moomoo.me"
 ]
 
 intents = discord.Intents.default()
@@ -25,6 +27,7 @@ def load_accounts():
         with open("accounts.txt", "r", encoding="utf-8") as f:
             return [x.strip() for x in f if x.strip()]
     except FileNotFoundError:
+        print("Error: accounts.txt が見つかりません。")
         return []
 
 def load_last():
@@ -38,19 +41,20 @@ def save_last(data):
     with open("last_tweets.json", "w") as f:
         json.dump(data, f)
 
-async def get_feed(session, user):
-    # インスタンスをランダムに入れ替えて試行
+async def get_feed(user):
+    # インスタンスをランダムに試行
     shuffled_instances = random.sample(NITTER_INSTANCES, len(NITTER_INSTANCES))
     
     for instance in shuffled_instances:
         url = f"{instance}/{user}/rss"
         try:
-            async with session.get(url, timeout=10) as resp:
-                if resp.status == 200:
-                    text = await resp.text()
-                    feed = feedparser.parse(text)
-                    if feed.entries:
-                        return feed
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as resp:
+                    if resp.status == 200:
+                        text = await resp.text()
+                        feed = feedparser.parse(text)
+                        if feed.entries:
+                            return feed
         except:
             continue
     return None
@@ -63,73 +67,73 @@ def clean_text(text):
 async def check_loop():
     await client.wait_until_ready()
     channel = client.get_channel(CHANNEL_ID)
+    
     if not channel:
-        print("チャンネルが見つかりません。IDを確認してください。")
+        print(f"Error: チャンネルID {CHANNEL_ID} が見つかりません。")
         return
 
-    # セッションを一つにまとめる
-    async with aiohttp.ClientSession() as session:
-        while not client.is_closed():
-            accounts = load_accounts()
-            last = load_last()
-
-            while True:
+    while not client.is_closed():
         accounts = load_accounts()
+        last = load_last()
 
         for user in accounts:
-            # --- ここから診断用コード (行頭にスペースを入れてください) ---
-            print(f"Checking: {user}...") 
+            print(f"Checking: {user}...")
             
-            feed = await get_feed(user) # ここが url になっていたら user に書き換え
+            # 引数を url ではなく user に修正
+            feed = await get_feed(user)
 
             if not feed:
-                print(f"  [!] {user}: サイトにアクセスできませんでした")
+                print(f"  [!] {user}: 取得失敗（インスタンス全滅または制限）")
                 continue
 
             if not feed.entries:
-                print(f"  [!] {user}: ツイートが0件でした（制限の可能性）")
+                print(f"  [!] {user}: ツイートが0件です")
                 continue
-            
-            print(f"  [OK] {user}: {len(feed.entries)}件のツイートを確認")
-            # --- ここまで診断用コード ---
 
-            # 以降の処理も、この for 文の中に含まれるようにインデントを揃える
+            print(f"  [OK] {user}: {len(feed.entries)}件取得")
+
             if user not in last:
                 last[user] = []
-            
-            # ... (以下、元のコードが続く)
 
-                for tweet in reversed(feed.entries[:5]): # 古い順に投稿
-                    tweet_id = tweet.link
-                    if tweet_id in last[user]:
-                        continue
+            # 投稿を古い順に処理するため逆順にする
+            for tweet in reversed(feed.entries[:5]):
+                tweet_id = tweet.link
 
-                    title = tweet.title
-                    if title.startswith("RT") or "Quote Tweet" in title:
-                        continue
+                if tweet_id in last[user]:
+                    continue
 
-                    text = clean_text(title)
-                    embed = discord.Embed(
-                        title=f"{user} のツイート",
-                        description=text,
-                        url=tweet.link,
-                        color=0x1DA1F2
-                    )
+                title = tweet.title
+                if title.startswith("RT") or "Quote Tweet" in title:
+                    continue
 
-                    # 画像取得の改善（Nitterのメディア構造に合わせる）
-                    if hasattr(tweet, 'media_content'):
-                        embed.set_image(url=tweet.media_content[0]['url'])
+                text = clean_text(title)
 
+                embed = discord.Embed(
+                    title=f"{user} のツイート",
+                    description=text,
+                    url=tweet.link,
+                    color=0x1DA1F2
+                )
+
+                # 画像の取得（Nitterの構造に合わせる）
+                if hasattr(tweet, 'media_content'):
+                    embed.set_image(url=tweet.media_content[0]['url'])
+
+                try:
                     await channel.send(embed=embed)
-                    last[user].append(tweet_id)
+                    print(f"  [送信完了] {user}")
+                except Exception as e:
+                    print(f"  [送信エラー] {e}")
 
-                    if len(last[user]) > 50:
-                        last[user].pop(0)
+                last[user].append(tweet_id)
+                if len(last[user]) > 50:
+                    last[user].pop(0)
 
-                save_last(last)
-                await asyncio.sleep(5) # 連続アクセスによる制限回避
+            save_last(last)
+            await asyncio.sleep(2) # 連続送信による負荷軽減
 
-            await asyncio.sleep(CHECK_INTERVAL)
+        print(f"待機中... ({CHECK_INTERVAL}秒)")
+        await asyncio.sleep(CHECK_INTERVAL)
 
 @client.event
 async def on_ready():
