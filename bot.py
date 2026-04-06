@@ -9,7 +9,7 @@ import aiohttp
 # 環境変数
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-CHECK_INTERVAL = 60  # 1分おきにチェック（短すぎるとブロックされます）
+CHECK_INTERVAL = 180  # 1分おきにチェック（短すぎるとブロックされます）
 
 # 現在比較的安定しているNitterインスタンス
 NITTER_INSTANCES = [
