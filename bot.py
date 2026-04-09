@@ -11,7 +11,7 @@ import random
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
-CHECK_INTERVAL = 180
+CHECK_INTERVAL = 300
 MAX_TWEET_AGE = 86400  # 48時間以内のツイートのみ
 FAIL_COOLDOWN = 600  # Nitterインスタンスの失敗時クールタイム
 
